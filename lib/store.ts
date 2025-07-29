@@ -27,6 +27,7 @@ interface AppState {
   setSidebarOpen: (open: boolean) => void;
   setLoading: (loading: boolean) => void;
   setTasks: (tasks: Task[]) => void;
+  setTemplates: (templates: Template[]) => void;
   
   // Data actions
   addProject: (project: Project) => void;
@@ -95,6 +96,7 @@ export const useStore = create<AppState>((set, get) => ({
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setLoading: (loading) => set({ loading }),
   setTasks: (tasks) => set({ tasks }),
+  setTemplates: (templates) => set({ templates }),
   
   // Data actions
   addProject: (project) => set((state) => {

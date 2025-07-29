@@ -114,27 +114,24 @@ export interface Template {
   description: string;
   categories: {
     name: string;
-    startDate?: string;
-    endDate?: string;
-    teams: {
+    startDate?: Date;
+    endDate?: Date;
+    tasks: {
       name: string;
-      specialty: string;
-      tasks: {
-        name: string;
-        description?: string;
-        duration?: string;
-        amount?: string;
-        plannedStartDate?: string;
-        plannedEndDate?: string;
-        actualStartDate?: string;
-        actualEndDate?: string;
-        progress?: number;
-        progressStatus?: 'on_schedule' | 'ahead' | 'behind' | 'at_risk';
-        status?: 'pending' | 'in_progress' | 'completed' | 'delayed';
-        isReceived?: boolean;
-        isPaid?: boolean;
-        remarks?: string;
-      }[];
+      description?: string;
+      teamId?: string;
+      durationDays?: number;
+      amount?: number;
+      plannedStartDate?: Date;
+      plannedEndDate?: Date;
+      actualStartDate?: Date;
+      actualEndDate?: Date;
+      progress?: number;
+      progressStatus?: 'on_schedule' | 'ahead' | 'behind' | 'at_risk';
+      status?: 'pending' | 'in_progress' | 'completed' | 'delayed';
+      isReceived?: boolean;
+      isPaid?: boolean;
+      remarks?: string;
     }[];
   }[];
   createdAt: Date;

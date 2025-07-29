@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useStore } from '@/lib/store';
 import { Navbar } from './navbar';
 import { Sidebar } from './sidebar';
@@ -20,47 +20,44 @@ export function Layout({ children }: LayoutProps) {
     selectedProject,
     setSelectedProject,
     setLoading,
-    addProject,
-    addVilla,
-    addCategory,
-    addTeam,
-    addTask,
-    addTemplate,
-
+    setTemplates,
   } = useStore();
 
   const { toast } = useToast();
+  const hasInitialized = useRef(false);
 
   // Initialize with real data from API
   useEffect(() => {
+    // Prevent multiple initializations
+    if (hasInitialized.current) {
+      return;
+    }
+
     const fetchData = async () => {
+      hasInitialized.current = true;
       setLoading(true);
       try {
         // Fetch projects
         const fetchedProjects = await apiService.getProjects();
         console.log('Fetched projects:', fetchedProjects);
         
-        // Add projects to the store
-        fetchedProjects.forEach(project => {
-          try {
-            addProject({
-              ...project,
-              id: project.id.toString(), // Ensure ID is string for frontend
-              startDate: new Date(project.startDate)
-            });
-          } catch (projectError) {
-            console.error('Error processing project:', project, projectError);
-          }
-        });
+        // Process projects data
+        const processedProjects = fetchedProjects.map(project => ({
+          ...project,
+          id: project.id.toString(),
+          startDate: new Date(project.startDate),
+          endDate: new Date(project.endDate)
+        }));
+
+        // Update store with all projects at once
+        useStore.setState(state => ({
+          projects: processedProjects
+        }));
         
         // Set default selected project
-        if (fetchedProjects.length > 0 && !selectedProject) {
-          const defaultProject = fetchedProjects[0];
-          setSelectedProject({
-            ...defaultProject,
-            id: defaultProject.id.toString(), // Ensure ID is string
-            startDate: new Date(defaultProject.startDate)
-          });
+        if (processedProjects.length > 0 && !selectedProject) {
+          const defaultProject = processedProjects[0];
+          setSelectedProject(defaultProject);
           
           toast({
             title: 'Projet sélectionné',
@@ -70,8 +67,8 @@ export function Layout({ children }: LayoutProps) {
         
         // Fetch villas for the selected project
         try {
-          if (fetchedProjects.length > 0) {
-            const defaultProjectId = fetchedProjects[0].id.toString();
+          if (processedProjects.length > 0) {
+            const defaultProjectId = processedProjects[0].id.toString();
             console.log('Fetching villas for project:', defaultProjectId);
             
             // Explicitly fetch villas for the default project
@@ -81,43 +78,19 @@ export function Layout({ children }: LayoutProps) {
             if (Array.isArray(fetchedVillas)) {
               console.log(`Found ${fetchedVillas.length} villas for project ${defaultProjectId}`);
               
-              // Clear existing villas to avoid duplicates
-              // This is important if we're reloading data
-              const villas = useStore.getState().villas;
-              console.log(`Clearing ${villas.length} existing villas before adding new ones`);
-              
-              // Clear existing villas for this project
-              villas.forEach((villa: any) => {
-                if (villa.projectId === defaultProjectId) {
-                  useStore.getState().deleteVilla(villa.id);
-                }
-              });
-              
-              // Add each villa to the store with proper project association
-              fetchedVillas.forEach((villa: any) => {
-                try {
-                  // Ensure critical fields are correct
-                  const villaWithDates = {
-                    ...villa,
-                    id: villa.id.toString(),
-                    // Explicitly set the projectId to match the current project
-                    projectId: defaultProjectId,
-                    lastModified: villa.lastModified instanceof Date ? 
-                      villa.lastModified : new Date(villa.lastModified)
-                  };
-                  
-                  console.log(`Adding villa ${villaWithDates.id} (${villaWithDates.name}) with projectId: ${villaWithDates.projectId}`);
-                  addVilla(villaWithDates);
-                } catch (villaError) {
-                  console.error('Error processing villa:', villa, villaError);
-                }
-              });
-              
-              // Verify villas were added correctly
-              const updatedVillas = useStore.getState().villas;
-              const projectVillas = useStore.getState().getVillasByProject(defaultProjectId);
-              console.log(`Store now has ${updatedVillas.length} villas`);
-              console.log(`Villas for project ${defaultProjectId}: ${projectVillas.length}`);
+              // Process villas data
+              const processedVillas = fetchedVillas.map((villa: any) => ({
+                ...villa,
+                id: villa.id.toString(),
+                projectId: defaultProjectId,
+                lastModified: villa.lastModified instanceof Date ? 
+                  villa.lastModified : new Date(villa.lastModified)
+              }));
+
+              // Update store with all villas at once
+              useStore.setState(state => ({
+                villas: processedVillas
+              }));
             } else {
               console.error('Fetched villas is not an array:', fetchedVillas);
             }
@@ -141,40 +114,22 @@ export function Layout({ children }: LayoutProps) {
           if (Array.isArray(fetchedCategories)) {
             console.log(`Found ${fetchedCategories.length} categories`);
             
-            // Clear existing categories to avoid duplicates
-            const categories = useStore.getState().categories;
-            console.log(`Clearing ${categories.length} existing categories before adding new ones`);
-            
-            // Clear all existing categories
-            categories.forEach((category: any) => {
-              useStore.getState().deleteCategory(category.id);
-            });
-            
-            // Add each category to the store with proper villaId mapping
-            fetchedCategories.forEach((category: any) => {
-              try {
-                // Ensure critical fields are correct
-                const categoryWithDates = {
-                  ...category,
-                  id: category.id.toString(),
-                  villaId: category.villaId ? category.villaId.toString() : 
-                          (category.villa && category.villa.id ? category.villa.id.toString() : null),
-                  startDate: category.startDate instanceof Date ? 
-                    category.startDate : new Date(category.startDate),
-                  endDate: category.endDate instanceof Date ? 
-                    category.endDate : new Date(category.endDate)
-                };
-                
-                console.log(`Adding category ${categoryWithDates.id} (${categoryWithDates.name}) with villaId: ${categoryWithDates.villaId}`);
-                addCategory(categoryWithDates);
-              } catch (categoryError) {
-                console.error('Error processing category:', category, categoryError);
-              }
-            });
-            
-            // Verify categories were added correctly
-            const updatedCategories = useStore.getState().categories;
-            console.log(`Store now has ${updatedCategories.length} categories`);
+            // Process categories data
+            const processedCategories = fetchedCategories.map((category: any) => ({
+              ...category,
+              id: category.id.toString(),
+              villaId: category.villaId ? category.villaId.toString() : 
+                      (category.villa && category.villa.id ? category.villa.id.toString() : null),
+              startDate: category.startDate instanceof Date ? 
+                category.startDate : new Date(category.startDate),
+              endDate: category.endDate instanceof Date ? 
+                category.endDate : new Date(category.endDate)
+            }));
+
+            // Update store with all categories at once
+            useStore.setState(state => ({
+              categories: processedCategories
+            }));
           } else {
             console.error('Fetched categories is not an array:', fetchedCategories);
           }
@@ -196,36 +151,18 @@ export function Layout({ children }: LayoutProps) {
           if (Array.isArray(fetchedTeams)) {
             console.log(`Found ${fetchedTeams.length} teams`);
             
-            // Clear existing teams to avoid duplicates
-            const teams = useStore.getState().teams;
-            console.log(`Clearing ${teams.length} existing teams before adding new ones`);
-            
-            // Clear all existing teams
-            teams.forEach((team: any) => {
-              useStore.getState().deleteTeam(team.id);
-            });
-            
-            // Add each team to the store
-            fetchedTeams.forEach((team: any) => {
-              try {
-                // Ensure critical fields are correct
-                const teamWithDates = {
-                  ...team,
-                  id: team.id.toString(),
-                  lastActivity: team.lastActivity instanceof Date ? 
-                    team.lastActivity : new Date(team.lastActivity)
-                };
-                
-                console.log(`Adding team ${teamWithDates.id} (${teamWithDates.name})`);
-                addTeam(teamWithDates);
-              } catch (teamError) {
-                console.error('Error processing team:', team, teamError);
-              }
-            });
-            
-            // Verify teams were added correctly
-            const updatedTeams = useStore.getState().teams;
-            console.log(`Store now has ${updatedTeams.length} teams`);
+            // Process teams data
+            const processedTeams = fetchedTeams.map((team: any) => ({
+              ...team,
+              id: team.id.toString(),
+              lastActivity: team.lastActivity instanceof Date ? 
+                team.lastActivity : new Date(team.lastActivity)
+            }));
+
+            // Update store with all teams at once
+            useStore.setState(state => ({
+              teams: processedTeams
+            }));
           } else {
             console.error('Fetched teams is not an array:', fetchedTeams);
           }
@@ -234,6 +171,47 @@ export function Layout({ children }: LayoutProps) {
           toast({
             title: 'Erreur de chargement des équipes',
             description: 'Impossible de charger les équipes. Veuillez réessayer.',
+            variant: 'destructive',
+          });
+        }
+        
+        // Fetch templates
+        try {
+          console.log('Fetching templates');
+          const fetchedTemplates = await apiService.getAllTemplates();
+          console.log('Fetched templates from API:', fetchedTemplates);
+          
+          if (Array.isArray(fetchedTemplates)) {
+            console.log(`Found ${fetchedTemplates.length} templates`);
+            
+            // Process templates data
+            const processedTemplates = fetchedTemplates.map((template: any) => ({
+              ...template,
+              id: template.id.toString(),
+              createdAt: template.createdAt instanceof Date ? 
+                template.createdAt : new Date(template.createdAt),
+              updatedAt: template.updatedAt instanceof Date ? 
+                template.updatedAt : new Date(template.updatedAt),
+              // Ensure categories structure is correct
+              categories: (template.categories || []).map((category: any) => ({
+                ...category,
+                startDate: category.startDate instanceof Date ? 
+                  category.startDate : new Date(category.startDate),
+                endDate: category.endDate instanceof Date ? 
+                  category.endDate : new Date(category.endDate),
+                tasks: category.tasks || []
+              }))
+            }));
+            
+            setTemplates(processedTemplates);
+          } else {
+            console.error('Fetched templates is not an array:', fetchedTemplates);
+          }
+        } catch (templatesError) {
+          console.error('Failed to fetch templates:', templatesError);
+          toast({
+            title: 'Erreur de chargement des templates',
+            description: 'Impossible de charger les templates. Veuillez réessayer.',
             variant: 'destructive',
           });
         }
@@ -250,9 +228,8 @@ export function Layout({ children }: LayoutProps) {
       }
     };
 
-    // Only fetch if we don't have projects yet
     fetchData();
-  }, [projects.length, selectedProject, setSelectedProject, setLoading, addProject, addVilla, toast]);
+  }, []); // Empty dependency array is fine now since we use useRef to prevent re-runs
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
