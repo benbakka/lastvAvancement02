@@ -1382,7 +1382,12 @@ class ApiService {
   }
   
   async deleteTemplate(id: string): Promise<void> {
-    return this.request(`/templates/${id}`, {
+    // Convert string ID to number if needed to match backend expectations
+    const numericId = parseInt(id, 10);
+    if (isNaN(numericId)) {
+      throw new Error(`Invalid template ID: ${id}`);
+    }
+    return this.request(`/templates/${numericId}`, {
       method: 'DELETE'
     });
   }

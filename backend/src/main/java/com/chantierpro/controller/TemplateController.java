@@ -59,11 +59,13 @@ public class TemplateController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteTemplate(@PathVariable Long id) {
-        try {
-            templateService.deleteTemplate(id);
+        boolean deleted = templateService.deleteTemplate(id);
+        if (deleted) {
             return ResponseEntity.ok().build();
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
+        } else {
+            // Return 200 OK even if template doesn't exist, as the end result is the same
+            // (the template is not in the database)
+            return ResponseEntity.ok().build();
         }
     }
 

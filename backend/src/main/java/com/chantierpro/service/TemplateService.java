@@ -67,10 +67,16 @@ public class TemplateService {
         return templateRepository.save(template);
     }
 
-    public void deleteTemplate(Long id) {
-        Template template = templateRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Template not found with id: " + id));
-        templateRepository.delete(template);
+    public boolean deleteTemplate(Long id) {
+        Optional<Template> templateOptional = templateRepository.findById(id);
+        if (templateOptional.isPresent()) {
+            // Template exists, delete it
+            Template template = templateOptional.get();
+            templateRepository.delete(template);
+            return true;
+        }
+        // Template doesn't exist, return false to indicate it wasn't found
+        return false;
     }
 
     // Template Category methods

@@ -147,11 +147,21 @@ export function TemplatesManager() {
   const handleDeleteTemplate = async (templateId: string) => {
     if (confirm('Êtes-vous sûr de vouloir supprimer ce template ?')) {
       try {
+        // Ensure templateId is a number when sending to the API
         await apiService.deleteTemplate(templateId);
+        // If we get here, the request was successful (even if the template didn't exist)
+        // Update the UI to remove the template
         deleteTemplate(templateId);
       } catch (error) {
         console.error('Failed to delete template:', error);
-        alert('Erreur lors de la suppression du template');
+        // If the error is a 404, it means the template is already gone
+        if (error instanceof Error && error.message.includes('404')) {
+          // Template is already gone, just update the UI
+          deleteTemplate(templateId);
+        } else {
+          // Other error, show alert
+          alert('Erreur lors de la suppression du template');
+        }
       }
     }
   };
