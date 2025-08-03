@@ -7,8 +7,10 @@ export interface Project {
   endDate: Date;
   status: 'ACTIVE' | 'COMPLETED' | 'PAUSED';
   progress: number;
+  progressStatus?: 'on_schedule' | 'ahead' | 'behind' | 'at_risk';
   villasCount: number;
   alertsCount: number;
+  picProject?: string; // URL or path to the project image
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -21,6 +23,7 @@ export interface Villa {
   surface: number;
   progress: number;
   status: 'not_started' | 'in_progress' | 'completed' | 'delayed';
+  progressStatus?: 'on_schedule' | 'ahead' | 'behind' | 'at_risk';
   categoriesCount: number;
   tasksCount: number;
   lastModified: Date;
@@ -34,6 +37,7 @@ export interface Category {
   endDate: Date;
   progress: number;
   status: 'ON_SCHEDULE' | 'IN_PROGRESS' | 'WARNING' | 'DELAYED';
+  progressStatus?: 'on_schedule' | 'ahead' | 'behind' | 'at_risk';
   teamId?: string;
   tasksCount: number;
   completedTasks: number;

@@ -48,6 +48,9 @@ public class Project {
 
     @Column(name = "alerts_count", nullable = false)
     private Integer alertsCount = 0;
+    
+    @Column(name = "pic_project", columnDefinition = "LONGTEXT")
+    private String picProject;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -60,7 +63,7 @@ public class Project {
     private List<Villa> villas;
 
     public enum ProjectStatus {
-        ACTIVE, COMPLETED, PAUSED
+        ACTIVE, COMPLETED, DRAFT, PAUSED
     }
 
     @PrePersist
@@ -115,6 +118,9 @@ public class Project {
 
     public Integer getAlertsCount() { return alertsCount; }
     public void setAlertsCount(Integer alertsCount) { this.alertsCount = alertsCount; }
+    
+    public String getPicProject() { return picProject; }
+    public void setPicProject(String picProject) { this.picProject = picProject; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

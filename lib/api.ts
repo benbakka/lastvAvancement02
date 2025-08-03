@@ -200,7 +200,8 @@ class ApiService {
         console.warn(`⚠ Warning: Non-numeric ID ${id} being sent to backend. Backend expects numeric IDs.`);
       }
       
-      const updatedProject = await this.request<Project>(`/projects/${id}`, {
+      // Make sure we're using the numeric ID for the backend and the correct endpoint format
+      const updatedProject = await this.request<Project>(`/projects/${numericId}`, {
         method: 'PUT',
         body: JSON.stringify(projectData),
       });

@@ -3,6 +3,7 @@
 import { useStore } from '@/lib/store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { EnhancedProgress } from '@/components/ui/enhanced-progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { 
@@ -93,7 +94,12 @@ export function ProjectOverview() {
                 <span>Avancement global</span>
                 <span>{selectedProject.progress}%</span>
               </div>
-              <Progress value={selectedProject.progress} className="h-2" />
+              <EnhancedProgress 
+                value={selectedProject.progress} 
+                status={selectedProject.progressStatus} 
+                className="h-2" 
+                id="project-progress"
+              />
             </div>
             
             <div className="grid grid-cols-3 gap-4 text-center">

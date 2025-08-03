@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { EnhancedProgress } from '@/components/ui/enhanced-progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { apiService } from '@/lib/api';
 import {
@@ -528,10 +529,35 @@ export function TreeViewDashboard() {
     });
   };
   
-  const updateTaskProgress = (taskId: string, progress: number) => {
-    // Find the task to get its planned dates
+  /**
+   * Updates a task's progress value and recalculates all progression values up the hierarchy
+   * (task → category → villa → project)
+   * 
+   * @param taskId - The ID of the task to update
+   * @param progress - The new progress value (0-100)
+   * @param showToast - Whether to show success/error toasts (default: true)
+   */
+  const updateTaskProgress = async (taskId: string, progress: number, showToast = true) => {
+    // Find the task to get its details
     const task = findTaskById(taskId);
-    if (!task) return;
+    if (!task) {
+      console.error(`❌ Task with ID ${taskId} not found`);
+      if (showToast) {
+        toast({
+          title: "Error updating task",
+          description: "Task not found. Please refresh the page and try again.",
+          variant: "destructive"
+        });
+      }
+      return;
+    }
+    
+    // Validate progress value is within range
+    const validProgress = Math.max(0, Math.min(100, progress));
+    if (validProgress !== progress) {
+      console.warn(`⚠️ Progress value ${progress} was out of range. Adjusted to ${validProgress}`);
+      progress = validProgress;
+    }
     
     // Calculate new task status based on progress
     const newStatus = progress === 100 ? 'completed' : progress > 0 ? 'in_progress' : 'pending';
@@ -540,16 +566,225 @@ export function TreeViewDashboard() {
     const newProgressStatus = calculateProgressStatus(
       task.plannedStartDate, 
       task.plannedEndDate, 
-      progress
+      progress,
+      task.startDate,
+      task.endDate
     );
     
-    // Update both status and progressStatus
-    updateTask(taskId, {
-      progress,
-      status: newStatus,
-      progressStatus: newProgressStatus,
-      updatedAt: new Date()
-    });
+    // Set loading state for UI feedback on all related progress bars
+    const taskElement = document.getElementById(`task-${taskId}`);
+    const taskProgressElement = document.getElementById(`task-progress-${taskId}`);
+    if (taskElement) {
+      taskElement.classList.add('updating');
+    }
+    if (taskProgressElement) {
+      taskProgressElement.classList.add('updating');
+    }
+    
+    // Also set updating state on parent elements in the hierarchy
+    if (task.categoryId) {
+      const categoryProgressElement = document.getElementById(`category-progress-${task.categoryId}`);
+      if (categoryProgressElement) {
+        categoryProgressElement.classList.add('updating');
+      }
+    }
+    
+    if (task.villaId) {
+      const villaProgressElement = document.getElementById(`villa-progress-${task.villaId}`);
+      if (villaProgressElement) {
+        villaProgressElement.classList.add('updating');
+      }
+    }
+    
+    if (selectedProject) {
+      const projectProgressElement = document.getElementById('project-progress');
+      if (projectProgressElement) {
+        projectProgressElement.classList.add('updating');
+      }
+    }
+    
+    try {
+      console.log(`🔄 Updating task ${taskId} progress to ${progress}%`);
+      
+      // Update both status and progressStatus
+      await updateTask(taskId, {
+        progress,
+        status: newStatus,
+        progressStatus: newProgressStatus,
+        updatedAt: new Date()
+      });
+      
+      console.log('✅ Task updated successfully, refreshing hierarchy data...');
+      
+      // Get the task's category and villa IDs
+      const categoryId = task.categoryId;
+      const villaId = task.villaId;
+      
+      if (categoryId && villaId) {
+        // Import API service
+        const { apiService } = await import('@/lib/api');
+        
+        // Track which levels were successfully updated
+        let updatedLevels = {
+          category: false,
+          villa: false,
+          project: false
+        };
+        
+        // Refresh category data
+        try {
+          const updatedCategory = await apiService.getCategoryById(categoryId);
+          console.log(`✅ Refreshed category data:`, updatedCategory);
+          
+          // Update category in store
+          const { updateCategory } = useStore.getState();
+          updateCategory(categoryId, {
+            progress: updatedCategory.progress || 0,
+            status: updatedCategory.status || 'ON_SCHEDULE',
+            tasksCount: updatedCategory.tasksCount || 0,
+            completedTasks: updatedCategory.completedTasks || 0
+          });
+          
+          updatedLevels.category = true;
+        } catch (categoryError) {
+          console.error('❌ Failed to refresh category data:', categoryError);
+        }
+        
+        // Refresh villa data
+        try {
+          const villaResponse = await apiService.getVillas();
+          const updatedVilla = villaResponse.find(v => v.id.toString() === villaId);
+          
+          if (updatedVilla) {
+            console.log(`✅ Refreshed villa data:`, updatedVilla);
+            
+            // Update villa in store
+            const { updateVilla } = useStore.getState();
+            updateVilla(villaId, {
+              progress: updatedVilla.progress || 0,
+              status: updatedVilla.status || 'NOT_STARTED'
+            });
+            
+            updatedLevels.villa = true;
+          }
+        } catch (villaError) {
+          console.error('❌ Failed to refresh villa data:', villaError);
+        }
+        
+        // If we have a project, refresh project data too
+        if (selectedProject) {
+          try {
+            const projectsResponse = await apiService.getProjects();
+            const updatedProject = projectsResponse.find(p => p.id.toString() === selectedProject.id);
+            
+            if (updatedProject) {
+              console.log(`✅ Refreshed project data:`, updatedProject);
+              
+              // Update project in store
+              const { updateProject } = useStore.getState();
+              updateProject(selectedProject.id, {
+                progress: updatedProject.progress || 0,
+                status: updatedProject.status || 'NOT_STARTED'
+              });
+              
+              updatedLevels.project = true;
+            }
+          } catch (projectError) {
+            console.error('❌ Failed to refresh project data:', projectError);
+          }
+        }
+        
+        // Show success toast with details on which levels were updated
+        if (showToast) {
+          const successMessage = `Task progress updated to ${progress}%.${updatedLevels.category ? ' Category progress recalculated.' : ''}${updatedLevels.villa ? ' Villa progress recalculated.' : ''}${updatedLevels.project ? ' Project progress recalculated.' : ''}`;
+          
+          toast({
+            title: "Progress Updated",
+            description: successMessage,
+            // Use default variant with success styling
+            variant: "default",
+            className: "bg-green-100 border-green-500 text-green-900"
+          });
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error updating task progress:', error);
+      if (showToast) {
+        toast({
+          title: "Error updating task",
+          description: "There was a problem updating the task progress. Please try again.",
+          variant: "destructive"
+        });
+      }
+    } finally {
+      // Remove loading state from all elements
+      if (taskElement) {
+        taskElement.classList.remove('updating');
+      }
+      if (taskProgressElement) {
+        taskProgressElement.classList.remove('updating');
+      }
+      
+      // Also update visual state for category, villa, and project progress bars
+      if (task.categoryId) {
+        const categoryProgressElement = document.getElementById(`category-progress-${task.categoryId}`);
+        if (categoryProgressElement) {
+          categoryProgressElement.classList.remove('updating');
+        }
+      }
+      
+      if (task.villaId) {
+        const villaProgressElement = document.getElementById(`villa-progress-${task.villaId}`);
+        if (villaProgressElement) {
+          villaProgressElement.classList.remove('updating');
+        }
+      }
+      
+      if (selectedProject) {
+        const projectProgressElement = document.getElementById('project-progress');
+        if (projectProgressElement) {
+          projectProgressElement.classList.remove('updating');
+        }
+      }
+    }
+  };
+  
+  /**
+   * Debounced version of updateTaskProgress to prevent too many rapid updates
+   */
+  const debouncedUpdateTaskProgress = (taskId: string, progress: number) => {
+    // Initialize the timeout tracking object if it doesn't exist
+    if (typeof window !== 'undefined') {
+      // Create the object if it doesn't exist
+      if (!window.progressUpdateTimeouts) {
+        window.progressUpdateTimeouts = {};
+      }
+      
+      // Clear any existing timeout for this task
+      if (window.progressUpdateTimeouts && window.progressUpdateTimeouts[taskId]) {
+        clearTimeout(window.progressUpdateTimeouts[taskId]);
+      }
+      
+      // Add visual feedback immediately
+      const taskElement = document.getElementById(`task-progress-${taskId}`);
+      if (taskElement) {
+        taskElement.classList.add('updating');
+      }
+      
+      // Set a new timeout
+      if (window.progressUpdateTimeouts) {
+        window.progressUpdateTimeouts[taskId] = setTimeout(() => {
+          updateTaskProgress(taskId, progress);
+          // Make sure progressUpdateTimeouts still exists when the timeout completes
+          if (window.progressUpdateTimeouts) {
+            delete window.progressUpdateTimeouts[taskId];
+          }
+        }, 500); // 500ms debounce time
+      }
+    } else {
+      // Fall back to immediate update if window is not available
+      updateTaskProgress(taskId, progress);
+    }
   };
   
   // Function to open template selection dialog
@@ -1106,7 +1341,12 @@ export function TreeViewDashboard() {
                                   <span className="text-sm font-medium">{villa.progress}%</span>
                                 </div>
                               </div>
-                              <Progress value={villa.progress} className="h-2 mt-2" />
+                              <EnhancedProgress 
+                                value={villa.progress} 
+                                status={villa.progressStatus} 
+                                className="h-2 mt-2" 
+                                id={`villa-progress-${villa.id}`}
+                              />
                             </CardHeader>
                           </CollapsibleTrigger>
                           <CollapsibleContent>
@@ -1161,7 +1401,12 @@ export function TreeViewDashboard() {
                                                   <span className="text-sm font-medium">{category.progress}%</span>
                                                 </div>
                                               </div>
-                                              <Progress value={category.progress} className="h-1 mt-2" />
+                                              <EnhancedProgress 
+                                                value={category.progress} 
+                                                status={category.progressStatus} 
+                                                className="h-1 mt-2" 
+                                                id={`category-progress-${category.id}`}
+                                              />
                                             </CardHeader>
                                           </CollapsibleTrigger>
                                           <CollapsibleContent>
@@ -1216,7 +1461,13 @@ export function TreeViewDashboard() {
                                                                   <span className="text-xs font-medium">{task.progress}%</span>
                                                                 </div>
                                                               </div>
-                                                              <Progress value={task.progress} className="h-1 mt-2" />
+                                                              <EnhancedProgress 
+                                                                value={task.progress} 
+                                                                status={task.progressStatus} 
+                                                                updating={window.progressUpdateTimeouts && window.progressUpdateTimeouts[task.id] !== undefined}
+                                                                className="h-1 mt-2" 
+                                                                id={`task-progress-${task.id}`}
+                                                              />
                                                             </CardContent>
                                                           </CollapsibleTrigger>
                                                           

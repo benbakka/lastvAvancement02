@@ -91,7 +91,15 @@ export const useStore = create<AppState>((set, get) => ({
   loading: false,
   
   // Actions
-  setSelectedProject: (project) => set({ selectedProject: project }),
+  setSelectedProject: (project) => {
+    // Save project ID to localStorage for persistence across page reloads
+    if (project) {
+      localStorage.setItem('selectedProjectId', project.id);
+    } else {
+      localStorage.removeItem('selectedProjectId');
+    }
+    set({ selectedProject: project });
+  },
   setSelectedVilla: (villa) => set({ selectedVilla: villa }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setLoading: (loading) => set({ loading }),

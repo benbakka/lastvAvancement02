@@ -32,6 +32,9 @@ export function Layout({ children }: LayoutProps) {
     if (hasInitialized.current) {
       return;
     }
+    
+    // Try to restore selected project from localStorage
+    const savedProjectId = typeof window !== 'undefined' ? localStorage.getItem('selectedProjectId') : null;
 
     const fetchData = async () => {
       hasInitialized.current = true;
@@ -54,15 +57,29 @@ export function Layout({ children }: LayoutProps) {
           projects: processedProjects
         }));
         
-        // Set default selected project
-        if (processedProjects.length > 0 && !selectedProject) {
-          const defaultProject = processedProjects[0];
-          setSelectedProject(defaultProject);
+        // Restore selected project from localStorage or set default
+        if (processedProjects.length > 0) {
+          let projectToSelect;
           
-          toast({
-            title: 'Projet sélectionné',
-            description: `${defaultProject.name} a été sélectionné par défaut.`,
-          });
+          // If we have a saved project ID, try to find that project
+          if (savedProjectId) {
+            projectToSelect = processedProjects.find(p => p.id === savedProjectId);
+          }
+          
+          // If no saved project or saved project not found, use first project
+          if (!projectToSelect && !selectedProject) {
+            projectToSelect = processedProjects[0];
+          }
+          
+          // Set the selected project if we found one and it's different from current
+          if (projectToSelect && (!selectedProject || selectedProject.id !== projectToSelect.id)) {
+            setSelectedProject(projectToSelect);
+            
+            toast({
+              title: 'Projet sélectionné',
+              description: `${projectToSelect.name} a été sélectionné.`,
+            });
+          }
         }
         
         // Fetch villas for the selected project

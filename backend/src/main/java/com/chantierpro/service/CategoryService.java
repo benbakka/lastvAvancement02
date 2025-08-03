@@ -2,6 +2,7 @@ package com.chantierpro.service;
 
 import com.chantierpro.dto.CategoryDTO;
 import com.chantierpro.entity.Category;
+import com.chantierpro.entity.Task;
 import com.chantierpro.entity.Villa;
 import com.chantierpro.entity.Team;
 import com.chantierpro.repository.CategoryRepository;
@@ -139,39 +140,98 @@ public class CategoryService {
         return categoryRepository.findByStatus(status);
     }
 
+    /**
+     * Updates the statistics for a category including progress calculation
+     * Progress is calculated as the average of all tasks' progression values
+     * 
+     * @param categoryId The ID of the category to update
+     */
     @Transactional
     public void updateCategoryStats(Long categoryId) {
-        Category category = categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new RuntimeException("Category not found with id: " + categoryId));
+        try {
+            Category category = categoryRepository.findById(categoryId)
+                    .orElseThrow(() -> new RuntimeException("Category not found with id: " + categoryId));
 
-        // Update tasks count
-        Long tasksCount = taskRepository.countByCategoryId(categoryId);
-        category.setTasksCount(tasksCount.intValue());
+            // Update tasks count
+            Long tasksCount = taskRepository.countByCategoryId(categoryId);
+            category.setTasksCount(tasksCount.intValue());
 
-        // Update completed tasks count
-        Long completedTasks = taskRepository.countCompletedByCategoryId(categoryId);
-        category.setCompletedTasks(completedTasks.intValue());
+            // Update completed tasks count
+            Long completedTasks = taskRepository.countCompletedByCategoryId(categoryId);
+            category.setCompletedTasks(completedTasks.intValue());
 
-        // Calculate progress
-        if (tasksCount > 0) {
-            int progress = (int) ((completedTasks * 100) / tasksCount);
-            category.setProgress(progress);
-            
-            // Update status based on progress
-            if (progress == 100) {
-                category.setStatus(Category.CategoryStatus.ON_SCHEDULE);
-            } else if (progress > 75) {
-                category.setStatus(Category.CategoryStatus.IN_PROGRESS);
-            } else if (progress > 50) {
-                category.setStatus(Category.CategoryStatus.WARNING);
+            // Calculate progress as average of all tasks' progression values
+            if (tasksCount > 0) {
+                // Get all tasks for this category
+                List<Task> tasks = taskRepository.findByCategoryId(categoryId);
+                
+                if (!tasks.isEmpty()) {
+                    int totalProgress = 0;
+                    int validTaskCount = 0;
+                    
+                    // Calculate total progress while handling null values and validating ranges
+                    for (Task task : tasks) {
+                        Integer taskProgress = task.getProgress();
+                        
+                        // Skip null progress values
+                        if (taskProgress == null) continue;
+                        
+                        // Ensure progress value is within valid range (0-100)
+                        taskProgress = Math.max(0, Math.min(100, taskProgress));
+                        
+                        totalProgress += taskProgress;
+                        validTaskCount++;
+                    }
+                    
+                    // Calculate average progress only if there are valid tasks with progress values
+                    int averageProgress = validTaskCount > 0 ? totalProgress / validTaskCount : 0;
+                    
+                    System.out.println("Category " + category.getName() + " progress calculated: " + 
+                            averageProgress + "% from " + validTaskCount + " valid tasks out of " + tasks.size() + " total");
+                    
+                    category.setProgress(averageProgress);
+                    
+                    // Update status based on progress
+                    updateCategoryStatusBasedOnProgress(category, averageProgress);
+                } else {
+                    // No tasks found, set progress to 0
+                    category.setProgress(0);
+                    category.setStatus(Category.CategoryStatus.DELAYED);
+                }
             } else {
+                // No tasks counted, set progress to 0
+                category.setProgress(0);
                 category.setStatus(Category.CategoryStatus.DELAYED);
             }
-        }
 
-        categoryRepository.save(category);
-        
-        // Update villa stats
-        villaService.updateVillaStats(category.getVilla().getId());
+            categoryRepository.save(category);
+            
+            // Update villa stats if the category has a valid villa
+            if (category.getVilla() != null && category.getVilla().getId() != null) {
+                villaService.updateVillaStats(category.getVilla().getId());
+            }
+        } catch (Exception e) {
+            System.err.println("Error updating category stats for ID " + categoryId + ": " + e.getMessage());
+            e.printStackTrace();
+            throw e; // Re-throw to maintain transaction semantics
+        }
+    }
+    
+    /**
+     * Helper method to update a category's status based on its progress percentage
+     * 
+     * @param category The category to update
+     * @param progress The calculated progress percentage
+     */
+    private void updateCategoryStatusBasedOnProgress(Category category, int progress) {
+        if (progress == 100) {
+            category.setStatus(Category.CategoryStatus.ON_SCHEDULE);
+        } else if (progress > 75) {
+            category.setStatus(Category.CategoryStatus.IN_PROGRESS);
+        } else if (progress > 50) {
+            category.setStatus(Category.CategoryStatus.WARNING);
+        } else {
+            category.setStatus(Category.CategoryStatus.DELAYED);
+        }
     }
 }

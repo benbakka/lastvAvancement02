@@ -13,6 +13,10 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
     // Use villa.id to query through the relationship
     List<Category> findByVilla_Id(Long villaId);
     
+    // Alias method for findByVilla_Id using JPQL query
+    @Query("SELECT c FROM Category c WHERE c.villa.id = ?1")
+    List<Category> findByVillaId(Long villaId);
+    
     // Team-related query removed as per requirement - team assignment is now only at task level
     
     List<Category> findByStatus(Category.CategoryStatus status);
@@ -28,4 +32,7 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
     
     @Query("SELECT COUNT(c) FROM Category c WHERE c.villa.id = ?1 AND c.status = ?2")
     Long countByVillaIdAndStatus(Long villaId, Category.CategoryStatus status);
+    
+    @Query("SELECT COUNT(c) FROM Category c WHERE c.villa.id = ?1 AND c.status = 'COMPLETED'")
+    Long countCompletedByVillaId(Long villaId);
 }

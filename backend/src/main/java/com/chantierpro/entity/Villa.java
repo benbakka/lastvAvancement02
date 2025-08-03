@@ -41,12 +41,19 @@ public class Villa {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private VillaStatus status = VillaStatus.NOT_STARTED;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(name = "progress_status")
+    private ProgressStatus progressStatus;
 
     @Column(name = "categories_count", nullable = false)
     private Integer categoriesCount = 0;
 
     @Column(name = "tasks_count", nullable = false)
     private Integer tasksCount = 0;
+    
+    @Column(name = "completed_categories", nullable = false)
+    private Integer completedCategories = 0;
 
     @Column(name = "last_modified", nullable = false)
     private LocalDateTime lastModified;
@@ -59,7 +66,11 @@ public class Villa {
     private List<Category> categories;
 
     public enum VillaStatus {
-        NOT_STARTED, IN_PROGRESS, COMPLETED, DELAYED
+        NOT_STARTED, IN_PROGRESS, COMPLETED, ON_HOLD, CANCELLED
+    }
+    
+    public enum ProgressStatus {
+        ON_SCHEDULE, AHEAD, BEHIND, AT_RISK
     }
 
     @PrePersist
@@ -110,6 +121,12 @@ public class Villa {
 
     public Integer getTasksCount() { return tasksCount; }
     public void setTasksCount(Integer tasksCount) { this.tasksCount = tasksCount; }
+    
+    public Integer getCompletedCategories() { return completedCategories; }
+    public void setCompletedCategories(Integer completedCategories) { this.completedCategories = completedCategories; }
+    
+    public ProgressStatus getProgressStatus() { return progressStatus; }
+    public void setProgressStatus(ProgressStatus progressStatus) { this.progressStatus = progressStatus; }
 
     public LocalDateTime getLastModified() { return lastModified; }
     public void setLastModified(LocalDateTime lastModified) { this.lastModified = lastModified; }

@@ -27,13 +27,17 @@ import {
   Edit,
   Trash2,
   Eye,
-  AlertTriangle
+  AlertTriangle,
+  Home
 } from 'lucide-react';
 import { Project } from '@/lib/types';
+import NextImage from 'next/image';
+import { useRouter } from 'next/navigation';
 
 export function ProjectsManager() {
-  const { projects, villas, addProject, updateProject, deleteProject, setSelectedProject, setLoading } = useStore();
+  const { projects, villas, addProject, updateProject, deleteProject, setSelectedProject, setLoading, setSidebarOpen } = useStore();
   const { toast } = useToast();
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -45,8 +49,13 @@ export function ProjectsManager() {
     location: '',
     startDate: '',
     endDate: '',
-    description: ''
+    description: '',
+    picProject: ''
   });
+  
+  // For file upload handling
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>('');
 
   const filteredProjects = projects.filter(project =>
     project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -57,6 +66,14 @@ export function ProjectsManager() {
   const handleCreateProject = async () => {
     try {
       setLoading(true);
+      
+      // Process image if selected
+      let picProjectUrl = '';
+      if (selectedImage) {
+        // Convert image to base64 for storage
+        picProjectUrl = await convertImageToBase64(selectedImage);
+      }
+      
       const projectData = {
         name: formData.name,
         type: formData.type,
@@ -66,7 +83,8 @@ export function ProjectsManager() {
         status: 'ACTIVE' as 'ACTIVE' | 'COMPLETED' | 'PAUSED',
         progress: 0,
         villasCount: 0,
-        alertsCount: 0
+        alertsCount: 0,
+        picProject: picProjectUrl // Add the image URL
       };
 
       // Call the API to create the project
@@ -76,7 +94,8 @@ export function ProjectsManager() {
       addProject({
         ...createdProject,
         startDate: new Date(createdProject.startDate),
-        endDate: new Date(createdProject.endDate)
+        endDate: new Date(createdProject.endDate),
+        picProject: picProjectUrl // Ensure the image is included
       });
       
       toast({
@@ -103,31 +122,67 @@ export function ProjectsManager() {
     
     try {
       setLoading(true);
-      const projectUpdates = {
+      
+      // Process image if selected
+      let picProjectUrl = editingProject.picProject || '';
+      if (selectedImage) {
+        // Convert image to base64 for storage
+        picProjectUrl = await convertImageToBase64(selectedImage);
+        console.log('Image converted to base64, length:', picProjectUrl.length);
+      }
+      
+      // Create a clean project data object with only the fields we want to update
+      const projectData = {
         name: formData.name,
         type: formData.type,
         location: formData.location,
         startDate: new Date(formData.startDate),
-        endDate: new Date(formData.endDate)
+        endDate: new Date(formData.endDate),
+        picProject: picProjectUrl // Add or update the image URL
       };
 
-      // Call the API to update the project
-      const updatedProject = await apiService.updateProject(editingProject.id, projectUpdates);
-      
-      // Update the project in the store with proper date objects
-      updateProject(editingProject.id, {
-        ...updatedProject,
-        startDate: new Date(updatedProject.startDate),
-        endDate: new Date(updatedProject.endDate)
+      console.log('Updating project with data:', {
+        id: editingProject.id,
+        name: projectData.name,
+        type: projectData.type,
+        picProjectLength: projectData.picProject ? projectData.picProject.length : 0
       });
-      
-      toast({
-        title: 'Projet mis à jour',
-        description: 'Le projet a été mis à jour avec succès.',
-      });
-      
-      setEditingProject(null);
-      resetForm();
+
+      try {
+        // Call the API to update the project with a timeout
+        const updatedProject = await Promise.race<Project>([
+          apiService.updateProject(editingProject.id, projectData),
+          new Promise<never>((_, reject) => 
+            setTimeout(() => reject(new Error('Update request timed out')), 15000)
+          )
+        ]);
+        
+        console.log('Project updated successfully:', updatedProject);
+        
+        // Update the project in the store with proper date objects
+        updateProject(editingProject.id, {
+          ...updatedProject,
+          startDate: new Date(updatedProject.startDate),
+          endDate: new Date(updatedProject.endDate),
+          picProject: picProjectUrl // Ensure the image is included
+        });
+        
+        toast({
+          title: 'Projet mis à jour',
+          description: 'Le projet a été mis à jour avec succès.',
+        });
+        
+        // Force close the dialog
+        setEditingProject(null);
+        resetForm();
+      } catch (updateError) {
+        console.error('Error during project update API call:', updateError);
+        toast({
+          title: 'Erreur de mise à jour',
+          description: 'Le projet n\'a pas pu être mis à jour. Veuillez réessayer.',
+          variant: 'destructive'
+        });
+      }
     } catch (error) {
       console.error('Failed to update project:', error);
       toast({
@@ -140,6 +195,110 @@ export function ProjectsManager() {
     }
   };
 
+  // Handle image file selection
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Create a preview URL for the selected image
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+    
+    setSelectedImage(file);
+  };
+  
+  // Convert image to base64 for storage with aggressive compression
+  const convertImageToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      // Always compress images regardless of size
+      console.log(`Processing image of size ${file.size} bytes...`);
+      
+      // Create a canvas to resize and compress the image
+      const img = new window.Image();
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | null;
+      
+      img.onload = () => {
+        // Calculate new dimensions while maintaining aspect ratio
+        let width = img.width;
+        let height = img.height;
+        // Reduce max dimension to 800px (smaller than before)
+        const maxDimension = 800; 
+        
+        if (width > height && width > maxDimension) {
+          height = Math.floor((height * maxDimension) / width);
+          width = maxDimension;
+        } else if (height > maxDimension) {
+          width = Math.floor((width * maxDimension) / height);
+          height = maxDimension;
+        }
+        
+        // Set canvas dimensions and draw resized image
+        canvas.width = width;
+        canvas.height = height;
+        ctx?.drawImage(img, 0, 0, width, height);
+        
+        // Convert to base64 with more aggressive compression
+        const quality = 0.5; // Lower quality for smaller file size
+        const base64 = canvas.toDataURL('image/jpeg', quality);
+        
+        // Log compression results
+        const originalSize = file.size;
+        const compressedSize = Math.round(base64.length * 0.75); // Approximate size in bytes
+        const compressionRatio = Math.round((originalSize / compressedSize) * 100) / 100;
+        console.log(`Compressed image from ${originalSize} bytes to ${compressedSize} bytes (${compressionRatio}x reduction)`);
+        
+        // If the image is still too large (over 500KB), compress further
+        if (compressedSize > 500 * 1024) {
+          console.log('Image still too large, applying additional compression...');
+          // Create a second pass with even smaller dimensions and quality
+          const canvas2 = document.createElement('canvas');
+          const ctx2 = canvas2.getContext('2d');
+          const maxDimension2 = 600; // Even smaller max dimension
+          
+          let width2 = width;
+          let height2 = height;
+          
+          if (width2 > height2 && width2 > maxDimension2) {
+            height2 = Math.floor((height2 * maxDimension2) / width2);
+            width2 = maxDimension2;
+          } else if (height2 > maxDimension2) {
+            width2 = Math.floor((width2 * maxDimension2) / height2);
+            height2 = maxDimension2;
+          }
+          
+          canvas2.width = width2;
+          canvas2.height = height2;
+          ctx2?.drawImage(canvas, 0, 0, width2, height2);
+          
+          const quality2 = 0.3; // Even lower quality
+          const base64Final = canvas2.toDataURL('image/jpeg', quality2);
+          
+          const finalSize = Math.round(base64Final.length * 0.75);
+          console.log(`Second pass compression: ${compressedSize} bytes to ${finalSize} bytes`);
+          resolve(base64Final);
+        } else {
+          resolve(base64);
+        }
+      };
+      
+      img.onerror = (error: Event | string) => {
+        reject(error);
+      };
+      
+      // Load the file into the image
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = error => reject(error);
+      reader.readAsDataURL(file);
+    });
+  };
+  
   const resetForm = () => {
     setFormData({
       name: '',
@@ -147,8 +306,29 @@ export function ProjectsManager() {
       location: '',
       startDate: '',
       endDate: '',
-      description: ''
+      description: '',
+      picProject: ''
     });
+    setSelectedImage(null);
+    setImagePreview('');
+  };
+  
+  // Handle project click to navigate to dashboard
+  const handleProjectClick = (project: Project) => {
+    // Set the selected project in the store
+    setSelectedProject(project);
+    
+    // Close the sidebar
+    setSidebarOpen(false);
+    
+    // Navigate to the dashboard
+    router.push('/dashboard');
+  };
+  
+  // Handle view project button click
+  const handleViewProject = (project: Project, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent the parent onClick from firing
+    setViewingProject(project);
   };
 
   const openEditDialog = (project: Project) => {
@@ -159,8 +339,16 @@ export function ProjectsManager() {
       location: project.location,
       startDate: project.startDate.toISOString().split('T')[0],
       endDate: project.endDate.toISOString().split('T')[0],
-      description: ''
+      description: '',
+      picProject: project.picProject || ''
     });
+    
+    // Set image preview if project has an image
+    if (project.picProject) {
+      setImagePreview(project.picProject);
+    } else {
+      setImagePreview('');
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -184,7 +372,7 @@ export function ProjectsManager() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between pb-6 border-b border-gray-100">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Gestion des Projets</h1>
           <p className="text-gray-600 mt-1">Créez et gérez vos projets de construction</p>
@@ -249,6 +437,29 @@ export function ProjectsManager() {
                   />
                 </div>
               </div>
+              
+              {/* Image Upload Field */}
+              <div>
+                <Label htmlFor="projectImage">Image du projet</Label>
+                <div className="mt-1 flex items-center gap-4">
+                  <Input
+                    id="projectImage"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    className="flex-1"
+                  />
+                  {imagePreview && (
+                    <div className="relative w-20 h-20 rounded-md overflow-hidden border border-gray-200">
+                      <div 
+                        className="w-full h-full bg-cover bg-center" 
+                        style={{ backgroundImage: `url(${imagePreview})` }}
+                      />
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Choisissez une image pour représenter ce projet</p>
+              </div>
               <div className="flex justify-end space-x-2">
                 <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                   Annuler
@@ -263,68 +474,96 @@ export function ProjectsManager() {
       </div>
 
       {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+      <div className="relative mb-8">
+        <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
         <Input
-          placeholder="Rechercher un projet..."
+          placeholder="Rechercher un projet par nom, type ou localisation..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10"
+          className="pl-12 py-6 text-base rounded-xl border-gray-200 focus:border-blue-400 focus:ring-blue-400 shadow-sm"
         />
       </div>
 
       {/* Projects Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredProjects.map((project, index) => (
-          <Card key={`project-list-${project.id}-${index}-${Math.random().toString(36).substring(2, 9)}`} className="hover:shadow-lg transition-shadow cursor-pointer">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">{project.name}</CardTitle>
-                <Badge className={getStatusColor(project.status)}>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        {filteredProjects.map((project, index) => {
+          // Use uploaded image if available, otherwise use a data URI for a default image
+          let projectImage = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAwIiBoZWlnaHQ9IjYwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iODAwIiBoZWlnaHQ9IjYwMCIgZmlsbD0iI2YwZjBmMCIvPjx0ZXh0IHg9IjQwMCIgeT0iMzAwIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMzAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiM5OTkiPkltYWdlIGR1IHByb2pldDwvdGV4dD48L3N2Zz4=';
+          
+          if (project.picProject) {
+            // Use the custom uploaded image from database
+            projectImage = project.picProject;
+          }
+          
+          return (
+            <div 
+              key={`project-list-${project.id}-${index}-${Math.random().toString(36).substring(2, 9)}`} 
+              className="group relative overflow-hidden rounded-xl bg-white shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer"
+              onClick={() => handleProjectClick(project)}
+            >
+              {/* Project Image with Zoom Effect */}
+              <div className="relative h-64 w-full overflow-hidden">
+                <div 
+                  className="absolute inset-0 bg-cover bg-center transform transition-transform duration-700 group-hover:scale-110"
+                  style={{ backgroundImage: `url(${projectImage})` }}
+                ></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
+                
+                {/* Status Badge */}
+                <Badge className={`absolute top-4 right-4 ${getStatusColor(project.status)}`}>
                   {getStatusText(project.status)}
                 </Badge>
-              </div>
-              <div className="space-y-2 text-sm text-gray-600">
-                <div className="flex items-center">
-                  <Building2 className="h-4 w-4 mr-2" />
-                  {project.type}
-                </div>
-                <div className="flex items-center">
-                  <MapPin className="h-4 w-4 mr-2" />
-                  {project.location}
-                </div>
-                <div className="flex items-center">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  {project.startDate.toLocaleDateString()} - {project.endDate.toLocaleDateString()}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span>Avancement</span>
-                    <span>{project.progress}%</span>
+                
+                {/* Project Title - Positioned at bottom of image */}
+                <div className="absolute bottom-0 left-0 right-0 p-6">
+                  <h3 className="text-xl font-bold text-white mb-1">{project.name}</h3>
+                  <div className="flex items-center text-white/90 text-sm">
+                    <Building2 className="h-4 w-4 mr-2" />
+                    <span>{project.type}</span>
                   </div>
-                  <Progress value={project.progress} className="h-2" />
+                </div>
+              </div>
+              
+              {/* Project Details */}
+              <div className="p-6 space-y-4">
+                {/* Location */}
+                <div className="flex items-center text-gray-700">
+                  <MapPin className="h-4 w-4 mr-2 text-gray-500" />
+                  <span>{project.location}</span>
                 </div>
                 
-                <div className="flex items-center justify-between text-sm">
-                  <span>{project.villasCount} villas</span>
-                  {project.alertsCount > 0 && (
-                    <div className="flex items-center text-red-600">
-                      <AlertTriangle className="h-4 w-4 mr-1" />
-                      {project.alertsCount} alertes
-                    </div>
-                  )}
+                {/* Progress Bar */}
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="font-medium">Avancement</span>
+                    <span className="font-bold">{project.progress}%</span>
+                  </div>
+                  <Progress value={project.progress} className="h-2 bg-gray-100" />
                 </div>
-
-                <div className="flex space-x-2">
+                
+                {/* Project Stats */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <Home className="h-4 w-4 mr-2 text-gray-500" />
+                    <span className="font-medium">{project.villasCount} villas</span>
+                  </div>
+                  
+                  <div className="flex items-center text-gray-600 text-sm">
+                    <Calendar className="h-4 w-4 mr-1" />
+                    <span>{project.startDate.toLocaleDateString('fr-FR', {day: '2-digit', month: '2-digit', year: 'numeric'})}</span>
+                  </div>
+                </div>
+                
+                {/* Action Buttons */}
+                <div className="flex space-x-2 pt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                   <Button 
                     variant="outline" 
                     size="sm" 
-                    className="flex-1"
-                    onClick={() => setViewingProject(project)}
+                    className="flex-1 bg-white hover:bg-gray-50"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleViewProject(project, e);
+                    }}
                   >
                     <Eye className="h-4 w-4 mr-2" />
                     Voir
@@ -332,14 +571,20 @@ export function ProjectsManager() {
                   <Button 
                     variant="outline" 
                     size="sm"
-                    onClick={() => openEditDialog(project)}
+                    className="bg-white hover:bg-gray-50"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEditDialog(project);
+                    }}
                   >
                     <Edit className="h-4 w-4" />
                   </Button>
                   <Button 
                     variant="outline" 
                     size="sm"
-                    onClick={async () => {
+                    className="bg-white hover:bg-gray-50"
+                    onClick={async (e) => {
+                      e.stopPropagation();
                       try {
                         setLoading(true);
                         // Call the API to delete the project
@@ -365,28 +610,39 @@ export function ProjectsManager() {
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
+                
+                {/* Alerts (if any) */}
+                {project.alertsCount > 0 && (
+                  <div className="flex items-center justify-center w-full py-2 px-3 bg-red-50 text-red-700 rounded-md mt-2">
+                    <AlertTriangle className="h-4 w-4 mr-2" />
+                    <span>{project.alertsCount} alertes</span>
+                  </div>
+                )}
               </div>
-            </CardContent>
-          </Card>
-        ))}
+            </div>
+          );
+        })}
       </div>
 
       {filteredProjects.length === 0 && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Building2 className="h-12 w-12 text-gray-400 mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Aucun projet trouvé</h3>
-            <p className="text-gray-600 text-center mb-4">
-              {searchTerm ? 'Aucun projet ne correspond à votre recherche.' : 'Commencez par créer votre premier projet.'}
+        <div className="col-span-1 md:col-span-2 lg:col-span-3">
+          <div className="bg-white rounded-xl shadow-md p-12 flex flex-col items-center justify-center">
+            <Building2 className="h-16 w-16 text-gray-300 mb-6" />
+            <h3 className="text-xl font-semibold text-gray-900 mb-3">Aucun projet trouvé</h3>
+            <p className="text-gray-600 text-center mb-6 max-w-md">
+              {searchTerm ? 'Aucun projet ne correspond à votre recherche.' : 'Commencez par créer votre premier projet immobilier.'}
             </p>
             {!searchTerm && (
-              <Button onClick={() => setIsCreateDialogOpen(true)}>
+              <Button 
+                onClick={() => setIsCreateDialogOpen(true)}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 transition-colors"
+              >
                 <Plus className="h-4 w-4 mr-2" />
                 Créer un projet
               </Button>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Edit Dialog */}
@@ -439,6 +695,29 @@ export function ProjectsManager() {
                   onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
                 />
               </div>
+            </div>
+            
+            {/* Image Upload Field */}
+            <div>
+              <Label htmlFor="edit-projectImage">Image du projet</Label>
+              <div className="mt-1 flex items-center gap-4">
+                <Input
+                  id="edit-projectImage"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageChange}
+                  className="flex-1"
+                />
+                {imagePreview && (
+                  <div className="relative w-20 h-20 rounded-md overflow-hidden border border-gray-200">
+                    <div 
+                      className="w-full h-full bg-cover bg-center" 
+                      style={{ backgroundImage: `url(${imagePreview})` }}
+                    />
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Choisissez une image pour représenter ce projet</p>
             </div>
             <div className="flex justify-end space-x-2">
               <Button variant="outline" onClick={() => setEditingProject(null)}>
@@ -600,7 +879,12 @@ export function ProjectsManager() {
               <div className="flex justify-end space-x-2">
                 <Button 
                   variant="outline"
-                  onClick={() => setSelectedProject(viewingProject)}
+                  onClick={() => {
+                    setSelectedProject(viewingProject);
+                    setViewingProject(null);
+                    setSidebarOpen(false);
+                    router.push('/dashboard');
+                  }}
                 >
                   Sélectionner ce projet
                 </Button>
